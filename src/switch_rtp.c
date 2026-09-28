@@ -6246,6 +6246,46 @@ static switch_bool_t rtp_is_remote_address_advertised_host(switch_rtp_t *rtp_ses
 
 #define return_cng_frame() do_cng = 1; goto timer_check
 
+/* Normalize optional RTP headers before jitter buffering or exposing a frame.
+ * Raw frames and codecs both expect the payload immediately after the fixed
+ * RTP header. Merely shortening the packet leaves extensions in the packet and
+ * truncates the payload when that raw frame is forwarded.
+ * This runs only after SRTP authentication/decryption, and never for proxy media.
+ */
+static switch_bool_t rtp_normalize_read_packet(unsigned char *packet, switch_size_t *bytes, switch_size_t capacity)
+{
+	switch_size_t header_len, extension_len;
+
+	if (*bytes < rtp_header_len || *bytes > capacity || (packet[0] >> 6) != 2) {
+		return SWITCH_FALSE;
+	}
+
+	header_len = rtp_header_len + (packet[0] & 0x0f) * 4;
+	if (header_len > *bytes) {
+		return SWITCH_FALSE;
+	}
+
+	if (packet[0] & 0x10) {
+		if (*bytes - header_len < 4) {
+			return SWITCH_FALSE;
+		}
+		extension_len = 4 + (((switch_size_t) packet[header_len + 2] << 8) | packet[header_len + 3]) * 4;
+		if (extension_len > *bytes - header_len) {
+			return SWITCH_FALSE;
+		}
+		header_len += extension_len;
+	}
+
+	if (header_len > rtp_header_len) {
+		/* Preserve the complete payload, including any RTP padding and its P bit. */
+		memmove(packet + rtp_header_len, packet + header_len, *bytes - header_len);
+		*bytes -= header_len - rtp_header_len;
+		packet[0] &= 0xe0; /* The normalized packet has no extension or CSRC list. */
+	}
+
+	return SWITCH_TRUE;
+}
+
 static switch_status_t read_rtp_packet(switch_rtp_t *rtp_session, switch_size_t *bytes, switch_frame_flag_t *flags,
 									   payload_map_t **pmapP, switch_status_t poll_status, switch_bool_t return_jb_packet)
 {
@@ -6868,28 +6908,16 @@ static switch_status_t read_rtp_packet(switch_rtp_t *rtp_session, switch_size_t 
 
 
 		if (rtp_session->has_rtp) {
-			if (rtp_session->recv_msg.header.cc > 0) { /* Contributing Source Identifiers (4 bytes = sizeof CSRC header)*/
-				rtp_session->recv_msg.ebody = RTP_BODY(rtp_session) + (rtp_session->recv_msg.header.cc * 4);
-			}
-
-			/* recalculate body length in case rtp extension used */
-			if (!rtp_session->flags[SWITCH_RTP_FLAG_PROXY_MEDIA] && !rtp_session->flags[SWITCH_RTP_FLAG_UDPTL] &&
-				rtp_session->recv_msg.header.x) { /* header extensions */
-				uint16_t length;
-
-				rtp_session->recv_msg.ext = (switch_rtp_hdr_ext_t *) RTP_BODY(rtp_session);
-				length = ntohs((uint16_t)rtp_session->recv_msg.ext->length);
-
-				if (length < SWITCH_RTP_MAX_BUF_LEN_WORDS) {
-					rtp_session->recv_msg.ebody = (char *)rtp_session->recv_msg.ext + (length * 4) + 4;
-					if (*bytes > (length * 4 + 4)) {
-						*bytes -= (length * 4 + 4);
-					} else {
-						*bytes = 0;
-					}
+			if (*bytes && !rtp_session->flags[SWITCH_RTP_FLAG_PROXY_MEDIA] && !rtp_session->flags[SWITCH_RTP_FLAG_UDPTL]) {
+				if (!rtp_normalize_read_packet((unsigned char *) &rtp_session->recv_msg, bytes,
+											   rtp_header_len + sizeof(rtp_session->recv_msg.body))) {
+					*bytes = 0;
+					return SWITCH_STATUS_BREAK;
 				}
+				rtp_session->recv_msg.ext = NULL;
+				rtp_session->recv_msg.ebody = NULL;
+				rtp_session->last_rtp_hdr = rtp_session->recv_msg.header;
 			}
-
 
 #ifdef DEBUG_CHROME
 
