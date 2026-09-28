@@ -1,0 +1,23 @@
+{
+  "freeswitchVersion": "1.11.3",
+  "baseImage": "debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251",
+  "sources": [
+    {
+      "name": "sofia-sip",
+      "repository": "freeswitch/sofia-sip",
+      "commit": "ad36ac8f755308e8b87f98a505e83d4e408e5cc3",
+      "url": "https://codeload.github.com/freeswitch/sofia-sip/tar.gz/ad36ac8f755308e8b87f98a505e83d4e408e5cc3",
+      "sha256": "a63ba972e4b7839b50bfd1277e150ebdb70ecd9261894bc65a74a7d3e995d533"
+    },
+    {
+      "name": "spandsp",
+      "repository": "freeswitch/spandsp",
+      "commit": "8f1e1646bdec99eac5fd2cd92c35563f736b9b89",
+      "url": "https://codeload.github.com/freeswitch/spandsp/tar.gz/8f1e1646bdec99eac5fd2cd92c35563f736b9b89",
+      "sha256": "1cb9a0ee3a68a20e84db9702cb82ac643b27e15820e74eb5a69511952dfa27b2"
+    }
+  ],
+  "imageVersion": "1.11.3-nexiot.2",
+  "upstreamTag": "v1.11.3",
+  "upstreamCommit": "ef32e205295e29f034f1453ad245ba5efb07b94a"
+}
